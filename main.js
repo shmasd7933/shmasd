@@ -9,6 +9,11 @@ app.use(session({
     secret: process.env.SESSION_SECRET,
     resave: false,
     saveUninitialized: false
+    cookie: {
+        httpOnly: true,
+        secure: process.env.NODE_ENV === 'production',
+        sameSite: 'lax'
+    }
 }));
 const db = mysql.createPool({
     host: 'mysql-shmasd7933-shmasdtu-fcd4.i.aivencloud.com',
