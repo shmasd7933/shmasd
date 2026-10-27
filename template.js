@@ -1171,43 +1171,54 @@ module.exports = {
             <div class="panel">
                 <div class="panel-header">
                     <div>
-                        <h2 class="panel-title">직원 등록</h2>
-                        <p class="panel-description">계정이 이미 생성된 직원의 정보를 등록하세요.</p>
+                    <h2 class="panel-title">직원 등록</h2>
+                    <p class="panel-description">로그인 계정과 직원 정보를 함께 등록하세요.</p>
                     </div>
                     <span class="section-chip">ADD EMPLOYEE</span>
                 </div>
 
                 <form action="/user/employee/create" method="post">
-                    <div class="form-grid">
-                        <div class="field">
-                            <label>사용자 번호</label>
-                            <input type="number" name="user_id_em"
-                                min="1" placeholder="users 테이블의 user_id" required>
-                        </div>
-                        <div class="field">
-                            <label>직원 이름</label>
-                            <input type="text" name="name"
-                                placeholder="이름 입력" required>
-                        </div>
-                        <div class="field">
-                            <label>성별</label>
-                            <select name="gender" required>
-                                <option value="">성별 선택</option>
-                                <option value="남">남</option>
-                                <option value="여">여</option>
-                            </select>
-                        </div>
-                        <div class="field">
-                            <label>나이</label>
-                            <input type="number" name="age"
-                                min="1" max="120" placeholder="나이 입력" required>
-                        </div>
+                <div class="form-grid">
+                    <div class="field">
+                        <label>로그인 아이디</label>
+                        <input type="text" name="username"
+                            placeholder="사용할 아이디 입력" required>
                     </div>
-                    <div style="margin-top:18px">
-                        <button class="btn btn-primary" type="submit">＋ 직원 등록하기</button>
+            
+                    <div class="field">
+                        <label>로그인 비밀번호</label>
+                        <input type="password" name="password"
+                            placeholder="사용할 비밀번호 입력" required>
                     </div>
-                </form>
-            </div>
+            
+                    <div class="field">
+                        <label>직원 이름</label>
+                        <input type="text" name="name"
+                            placeholder="이름 입력" required>
+                    </div>
+            
+                    <div class="field">
+                        <label>성별</label>
+                        <select name="gender" required>
+                            <option value="">성별 선택</option>
+                            <option value="남">남</option>
+                            <option value="여">여</option>
+                        </select>
+                    </div>
+            
+                    <div class="field">
+                        <label>나이</label>
+                        <input type="number" name="age"
+                            min="1" max="120" placeholder="나이 입력" required>
+                    </div>
+                </div>
+            
+                <div style="margin-top:18px">
+                    <button class="btn btn-primary" type="submit">
+                        ＋ 직원 및 계정 등록하기
+                    </button>
+                </div>
+            </form>
 
             <div class="panel">
                 <div class="panel-header">

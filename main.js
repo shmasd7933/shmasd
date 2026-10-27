@@ -220,31 +220,59 @@ app.get('/user/employee', boss, async (req, res, next) => {
 });
 
 // 직원 추가: users에 직원 계정이 먼저 있어야 함
-app.post('/user/employee/create', boss, async (req, res, next) => {
+
+ app.post('/user/employee/create', boss, async (req, res, next) => {
+    const connection = await db.getConnection();
+
     try {
-        INSERT INTO employees (user_id_em, name, gender, age)
-        VALUES (?, ?, ?, ?)
+        const { username, password, name, gender, age } = req.body;
 
-        const [users] = await db.execute(
-            "SELECT user_id FROM users WHERE user_id = ? AND role = 'employee'",
-            [user_id_em]
-        );
-
-        if (!users.length) {
-            return res.status(400).send('직원 계정을 먼저 등록해 주세요.');
+        // 필수 입력값 확인
+        if (!username || !password || !name || !gender || age === '') {
+            return res.status(400).send('모든 항목을 입력해 주세요.');
         }
 
-        await db.execute(
+        await connection.beginTransaction();
+
+        // 아이디 중복 확인
+        const [existingUsers] = await connection.execute(
+            'SELECT user_id FROM users WHERE username = ?',
+            [username]
+        );
+
+        if (existingUsers.length > 0) {
+            await connection.rollback();
+            return res.status(400).send('이미 사용 중인 아이디입니다.');
+        }
+
+        // 1. users 테이블에 로그인 계정 생성
+        const [userResult] = await connection.execute(
+            `INSERT INTO users (username, password, role)
+             VALUES (?, ?, 'employee')`,
+            [username, password]
+        );
+
+        // 방금 생성한 계정의 user_id 가져오기
+        const userId = userResult.insertId;
+
+        // 2. employees 테이블에 직원 정보 생성
+        await connection.execute(
             `INSERT INTO employees (user_id_em, name, gender, age)
              VALUES (?, ?, ?, ?)`,
-            [user_id_em, name, gender, age]
+            [userId, name, gender, Number(age)]
         );
+
+        await connection.commit();
 
         res.redirect('/user/employee');
     } catch (err) {
+        await connection.rollback();
         next(err);
+    } finally {
+        connection.release();
     }
 });
+
 
 // 직원 정보 수정
 app.post('/user/employee/update', boss, async (req, res, next) => {
