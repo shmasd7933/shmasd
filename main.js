@@ -2,22 +2,24 @@ const express = require('express');
 const mysql = require('mysql2/promise');
 const session = require('express-session');
 const template = require('./template');
-
 const app = express();
-
+const PORT = process.env.PORT || 3000;
 app.use(express.urlencoded({ extended: true }));
 app.use(session({
-    secret: 'change-this-to-a-long-random-secret',
+    secret: process.env.SESSION_SECRET,
     resave: false,
     saveUninitialized: false
 }));
-
 const db = mysql.createPool({
-    host: 'localhost',
-    port: 3401,
-    user: 'root',
-    password: '1234',
-    database: 'schedulingsystem'
+    host: 'mysql-shmasd7933-shmasdtu-fcd4.i.aivencloud.com',
+    port: 23320,
+    user: 'avnadmin',
+    password: process.env.DB_PASSWORD,
+    database: 'scedulingsystem',
+    ssl: {
+        rejectUnauthorized: true,
+        ca: process.env.DB_CA_CERT
+    }
 });
 
 // 로그인 여부 확인
