@@ -8,7 +8,7 @@ app.use(express.urlencoded({ extended: true }));
 app.use(session({
     secret: process.env.SESSION_SECRET,
     resave: false,
-    saveUninitialized: false
+    saveUninitialized: false,
     cookie: {
         httpOnly: true,
         secure: process.env.NODE_ENV === 'production',
@@ -222,7 +222,8 @@ app.get('/user/employee', boss, async (req, res, next) => {
 // 직원 추가: users에 직원 계정이 먼저 있어야 함
 app.post('/user/employee/create', boss, async (req, res, next) => {
     try {
-        const { user_id_em, name, gender, age } = req.body;
+        INSERT INTO employees (user_id_em, name, gender, age)
+        VALUES (?, ?, ?, ?)
 
         const [users] = await db.execute(
             "SELECT user_id FROM users WHERE user_id = ? AND role = 'employee'",
@@ -312,6 +313,6 @@ app.use((err, req, res, next) => {
     res.status(500).send('오류가 발생했습니다. 터미널을 확인해 주세요.');
 });
 
-app.listen(3000, () => {
-    console.log('http://localhost:3000 에서 서버 실행 중');
+app.listen(PORT, '0.0.0.0', () => {
+    console.log(`서버 실행 중: ${PORT}`);
 });
