@@ -29,8 +29,8 @@ const db = mysql.createPool({
 
 // 로그인 여부 확인
 function login(req, res, next) {
-    if (!req.session.user) return res.redirect('/');
-    next();
+    if (!req.session.user) return res.redirect('/');//session은 로그인한 사용자의 정보를 세션에 저장하는 코드
+    next();//next는다음 단계로 진행되게 하는 코드
 }
 
 // 사장 권한 확인
@@ -44,7 +44,7 @@ function boss(req, res, next) {
 
 // 페이지 출력
 function show(res, content) {
-    res.send(template.html(content));
+    res.send(template.html(content));//content에는 생성된 본문의 HTML이 들어가고, template.html(content)는 전체 HTML 구조를 만들어서 반환하는 함수이며 res.send()는 이 HTML을 클라이언트에게 전송합니다.
 }
 
 // 로그인 화면
@@ -53,10 +53,10 @@ app.get('/', (req, res) => {
 });
 
 // 로그인 처리
-app.post('/login', async (req, res, next) => {
+app.post('/login', async (req, res, next) => {//async 비동기함수로 선언하는 키워드인데 선언함으로써 시간이 오래 걸리는 작업을 처리할때 다른 작업이 불필요하게 기다리지 않도록 비동기 방식으로 실행하게 만들어준다
     try {
         const { username, password } = req.body;
-        const [rows] = await db.execute(
+        const [rows] = await db.execute(//조회해서 첫 번째 데이터만 rows에 저장함 await는 비동기 작업이 끝날때까지 기다렷다가 결과를 받환받는 코드
             'SELECT user_id, username, role FROM users WHERE username = ? AND password = ?',
             [username, password]
         );
@@ -75,7 +75,7 @@ app.post('/login', async (req, res, next) => {
             if (err) return next(err);
 
             req.session.user = user;
-            res.redirect(user.role === 'user' ? '/user' : '/employee');
+            res.redirect(user.role === 'user' ? '/user' : '/employee'); //
         });
     } catch (err) {
         next(err);
@@ -84,7 +84,7 @@ app.post('/login', async (req, res, next) => {
 
 // 로그아웃
 app.get('/logout', (req, res) => {
-    req.session.destroy(() => res.redirect('/'));
+    req.session.destroy(() => res.redirect('/'));//현재 사용자의 세션을 삭제하는 역할
 });
 
 // 사장 메인
