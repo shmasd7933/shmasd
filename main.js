@@ -4,6 +4,9 @@ const session = require('express-session');
 const template = require('./template');
 const app = express();
 const PORT = process.env.PORT || 3000;
+const caCert = process.env.DB_CA_CERT
+    ? process.env.DB_CA_CERT.replace(/\\n/g, '\n').trim()
+    : undefined;
 app.use(express.urlencoded({ extended: true }));
 app.use(session({
     secret: process.env.SESSION_SECRET,
@@ -23,7 +26,7 @@ const db = mysql.createPool({
     password: process.env.DB_PASSWORD,
     database: process.env.DB_NAME,
     ssl: {
-        ca: process.env.DB_CA_CERT,
+        ca: caCert,
         rejectUnauthorized: true
     },
     waitForConnections: true,
@@ -337,7 +340,11 @@ app.post('/user/employee/delete', boss, async (req, res, next) => {
         connection.release();
     }
 });
-
+console.log('CA 인증서 등록 여부:', Boolean(caCert));
+console.log(
+    'CA 인증서 형식 확인:',
+    caCert?.startsWith('-----BEGIN CERTIFICATE-----')
+);
 // 서버 오류 처리
 app.use((err, req, res, next) => {
     console.error(err);
