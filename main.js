@@ -23,11 +23,13 @@ const db = mysql.createPool({
     password: process.env.DB_PASSWORD,
     database: process.env.DB_NAME,
     ssl: {
+        ca: process.env.DB_CA_CERT,
         rejectUnauthorized: true
     },
     waitForConnections: true,
     connectionLimit: 10
 });
+
 // 로그인 여부 확인
 function login(req, res, next) {
     if (!req.session.user) return res.redirect('/');//session은 로그인한 사용자의 정보를 세션에 저장하는 코드
