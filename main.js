@@ -59,19 +59,43 @@ app.get('/', (req, res) => {
 });
 
 // 로그인 처리
-app.post('/login', async (req, res, next) => {//async 비동기함수로 선언하는 키워드인데 선언함으로써 시간이 오래 걸리는 작업을 처리할때 다른 작업이 불필요하게 기다리지 않도록 비동기 방식으로 실행하게 만들어준다
+
+app.post('/login', async (req, res, next) => {
     try {
-        const { username, password } = req.body;
-        const [rows] = await db.execute(//조회해서 첫 번째 데이터만 rows에 저장함 await는 비동기 작업이 끝날때까지 기다렷다가 결과를 받환받는 코드
-            'SELECT user_id, username, role FROM users WHERE username = ? AND password = ?',
-            [username, password]
+        const username = String(req.body.username || '').trim();
+        const password = String(req.body.password || '');
+
+        console.log('로그인 아이디:', JSON.stringify(username));
+        console.log('비밀번호 입력 여부:', Boolean(password));
+        console.log('비밀번호 길이:', password.length);
+
+        const [rows] = await db.execute(
+            'SELECT user_id, username, password, role FROM users WHERE username = ?',
+            [username]
         );
 
+        console.log('조회된 계정 수:', rows.length);
+
         if (rows.length === 0) {
+            console.log('로그인 실패: 계정 없음');
             return show(res, template.loginFail());
         }
 
-        const user = rows[0];
+        const account = rows[0];
+        const passwordMatch = account.password === password;
+
+        console.log('비밀번호 일치 여부:', passwordMatch);
+
+        if (!passwordMatch) {
+            console.log('로그인 실패: 비밀번호 불일치');
+            return show(res, template.loginFail());
+        }
+
+        const user = {
+            user_id: account.user_id,
+            username: account.username,
+            role: account.role
+        };
 
         if (!['user', 'employee'].includes(user.role)) {
             return res.status(403).send('잘못된 권한입니다.');
@@ -81,8 +105,9 @@ app.post('/login', async (req, res, next) => {//async 비동기함수로 선언�
             if (err) return next(err);
 
             req.session.user = user;
-            res.redirect(user.role === 'user' ? '/user' : '/employee'); //
+            res.redirect(user.role === 'user' ? '/user' : '/employee');
         });
+
     } catch (err) {
         next(err);
     }
