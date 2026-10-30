@@ -16,17 +16,17 @@ app.use(session({
     }
 }));
 const db = mysql.createPool({
-    host: 'mysql-shmasd7933-shmasdtu-fcd4.i.aivencloud.com',
-    port: 23320,
-    user: 'avnadmin',
+    host: process.env.DB_HOST,
+    port: Number(process.env.DB_PORT),
+    user: process.env.DB_USER,
     password: process.env.DB_PASSWORD,
-    database: 'scedulingsystem',
+    database: process.env.DB_NAME,
     ssl: {
-        rejectUnauthorized: true,
-        ca: process.env.DB_CA_CERT
-    }
+        rejectUnauthorized: true
+    },
+    waitForConnections: true,
+    connectionLimit: 10
 });
-
 // 로그인 여부 확인
 function login(req, res, next) {
     if (!req.session.user) return res.redirect('/');//session은 로그인한 사용자의 정보를 세션에 저장하는 코드
