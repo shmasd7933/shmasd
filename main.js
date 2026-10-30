@@ -15,6 +15,7 @@ app.use(session({
         sameSite: 'lax'
     }
 }));
+
 const db = mysql.createPool({
     host: process.env.DB_HOST,
     port: Number(process.env.DB_PORT),
