@@ -102,11 +102,19 @@ app.post('/login', async (req, res, next) => {
         }
 
         req.session.regenerate(err => {
-            if (err) return next(err);
+        if (err) return next(err);
 
-            req.session.user = user;
-            res.redirect(user.role === 'user' ? '/user' : '/employee');
-        });
+    req.session.user = user;
+
+    req.session.save(err => {
+        if (err) return next(err);
+
+        console.log('로그인 세션 저장 성공');
+        console.log('로그인 권한:', user.role);
+
+        res.redirect(user.role === 'user' ? '/user' : '/employee');
+    });
+});
 
     } catch (err) {
         next(err);
