@@ -1,5 +1,5 @@
 const express = require('express');
-const mysql = require('mysql2/promise');
+const mysql = require('mysql2');
 const session = require('express-session');
 const template = require('./template');
 const app = express();
@@ -404,18 +404,24 @@ app.use((err, req, res, next) => {
 
 async function main() {
     try {
-        // 기존 Aiven 데이터베이스에 단일 연결을 만들고, 연결이 확인된 뒤 서버를 엽니다.
-        db = await mysql.createConnection({
+        // MySQL06 방식: Aiven MySQL 접속 정보를 넣어 연결하고 connect()를 호출합니다.
+        const mysqlConnection = mysql.createConnection({
             host: process.env.DB_HOST,
-            port: DB_PORT,
             user: process.env.DB_USER,
             password: process.env.DB_PASSWORD,
             database: process.env.DB_NAME,
+            port: DB_PORT,
             ssl: caCert
                 ? { ca: caCert, rejectUnauthorized: true }
                 : { rejectUnauthorized: true },
             connectTimeout: 10000
         });
+
+        await new Promise((resolve, reject) => {
+            mysqlConnection.connect(error => error ? reject(error) : resolve());
+        });
+        // 라우트의 비동기 DB 작업은 mysql2 Promise 래퍼를 사용합니다.
+        db = mysqlConnection.promise();
         await db.execute('SELECT 1');
         app.listen(PORT, '0.0.0.0', () => {
             console.log(`서버 실행 중: ${PORT}`);
