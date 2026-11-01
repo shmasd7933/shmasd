@@ -39,16 +39,6 @@ app.use(session({
     }
 }));
 
-// Aiven에 이미 만들어 둔 데이터베이스에 직접 연결합니다.
-const dbConfig = {
-    host: process.env.DB_HOST,
-    port: DB_PORT,
-    user: process.env.DB_USER,
-    password: process.env.DB_PASSWORD,
-    database: process.env.DB_NAME,
-    ssl: caCert ? { ca: caCert, rejectUnauthorized: true } : { rejectUnauthorized: true },
-    connectTimeout: 10000
-};
 let db;
 let dbQueue = Promise.resolve();
 
@@ -412,10 +402,20 @@ app.use((err, req, res, next) => {
     res.status(500).send('오류가 발생했습니다. 터미널을 확인해 주세요.');
 });
 
-async function start() {
+async function main() {
     try {
         // 기존 Aiven 데이터베이스에 단일 연결을 만들고, 연결이 확인된 뒤 서버를 엽니다.
-        db = await mysql.createConnection(dbConfig);
+        db = await mysql.createConnection({
+            host: process.env.DB_HOST,
+            port: DB_PORT,
+            user: process.env.DB_USER,
+            password: process.env.DB_PASSWORD,
+            database: process.env.DB_NAME,
+            ssl: caCert
+                ? { ca: caCert, rejectUnauthorized: true }
+                : { rejectUnauthorized: true },
+            connectTimeout: 10000
+        });
         await db.execute('SELECT 1');
         app.listen(PORT, '0.0.0.0', () => {
             console.log(`서버 실행 중: ${PORT}`);
@@ -436,4 +436,4 @@ for (const signal of ['SIGINT', 'SIGTERM']) {
     });
 }
 
-start();
+main();
