@@ -7,11 +7,31 @@ const PORT = process.env.PORT || 3000;
 const caCert = process.env.DB_CA_CERT
     ? process.env.DB_CA_CERT.replace(/\\n/g, '\n').trim()
     : undefined;
+
+const requiredEnv = ['SESSION_SECRET', 'DB_HOST', 'DB_USER', 'DB_PASSWORD', 'DB_NAME'];
+const missingEnv = requiredEnv.filter(name => !process.env[name]);
+if (missingEnv.length > 0) {
+    throw new Error(`필수 환경 변수가 없습니다: ${missingEnv.join(', ')}`);
+}
+const DB_PORT = Number(process.env.DB_PORT || 3306);
+if (!Number.isInteger(DB_PORT) || DB_PORT < 1 || DB_PORT > 65535) {
+    throw new Error('DB_PORT는 1~65535 사이의 정수여야 합니다.');
+}
+if (process.env.NODE_ENV === 'production' && !caCert) {
+    throw new Error('운영 환경에서는 Aiven CA 인증서를 DB_CA_CERT에 설정해야 합니다.');
+}
+
+if (process.env.NODE_ENV === 'production') {
+    // Render의 프록시 뒤에서도 secure 쿠키가 HTTPS 요청으로 인식되도록 설정합니다.
+    app.set('trust proxy', 1);
+}
+
 app.use(express.urlencoded({ extended: true }));
 app.use(session({
     secret: process.env.SESSION_SECRET,
     resave: false,
     saveUninitialized: false,
+    proxy: process.env.NODE_ENV === 'production',
     cookie: {
         httpOnly: true,
         secure: process.env.NODE_ENV === 'production',
@@ -19,18 +39,39 @@ app.use(session({
     }
 }));
 
-const db = mysql.createPool({
+// Aiven에 이미 만들어 둔 데이터베이스에 직접 연결합니다.
+const dbConfig = {
     host: process.env.DB_HOST,
-    port: Number(process.env.DB_PORT),
+    port: DB_PORT,
     user: process.env.DB_USER,
     password: process.env.DB_PASSWORD,
     database: process.env.DB_NAME,
-    ssl: {
-        ca: caCert,
-        rejectUnauthorized: true
-    },
-    waitForConnections: true,
-    connectionLimit: 10
+    ssl: caCert ? { ca: caCert, rejectUnauthorized: true } : { rejectUnauthorized: true },
+    connectTimeout: 10000
+};
+let db;
+let dbQueue = Promise.resolve();
+
+// 단일 DB 연결의 쿼리를 한 번에 하나씩 실행합니다.
+function withDbLock(work) {
+    const current = dbQueue.then(work, work);
+    dbQueue = current.catch(() => {});
+    return current;
+}
+
+function query(sql, values = []) {
+    return withDbLock(() => db.execute(sql, values));
+}
+
+// Render 상태 확인용: 웹 서버와 Aiven DB 연결이 모두 정상일 때만 200을 반환합니다.
+app.get('/health', async (req, res) => {
+    try {
+        await query('SELECT 1');
+        res.status(200).send('ok');
+    } catch (err) {
+        console.error('Health check DB 연결 실패:', err.message);
+        res.status(503).send('database unavailable');
+    }
 });
 
 // 로그인 여부 확인
@@ -65,29 +106,19 @@ app.post('/login', async (req, res, next) => {
         const username = String(req.body.username || '').trim();
         const password = String(req.body.password || '');
 
-        console.log('로그인 아이디:', JSON.stringify(username));
-        console.log('비밀번호 입력 여부:', Boolean(password));
-        console.log('비밀번호 길이:', password.length);
-
-        const [rows] = await db.execute(
+        const [rows] = await query(
             'SELECT user_id, username, password, role FROM users WHERE username = ?',
             [username]
         );
 
-        console.log('조회된 계정 수:', rows.length);
-
         if (rows.length === 0) {
-            console.log('로그인 실패: 계정 없음');
             return show(res, template.loginFail());
         }
 
         const account = rows[0];
         const passwordMatch = account.password === password;
 
-        console.log('비밀번호 일치 여부:', passwordMatch);
-
         if (!passwordMatch) {
-            console.log('로그인 실패: 비밀번호 불일치');
             return show(res, template.loginFail());
         }
 
@@ -102,19 +133,14 @@ app.post('/login', async (req, res, next) => {
         }
 
         req.session.regenerate(err => {
-        if (err) return next(err);
+            if (err) return next(err);
 
-    req.session.user = user;
-
-    req.session.save(err => {
-        if (err) return next(err);
-
-        console.log('로그인 세션 저장 성공');
-        console.log('로그인 권한:', user.role);
-
-        res.redirect(user.role === 'user' ? '/user' : '/employee');
-    });
-});
+            req.session.user = user;
+            req.session.save(err => {
+                if (err) return next(err);
+                res.redirect(user.role === 'user' ? '/user' : '/employee');
+            });
+        });
 
     } catch (err) {
         next(err);
@@ -144,7 +170,7 @@ app.get('/schedule', login, async (req, res, next) => {
     try {
         const name = (req.query.name || '').trim();
 
-        const [schedules] = await db.execute(
+        const [schedules] = await query(
             `SELECT s.schedule_id, s.employee_id_sh, s.work_date,
                     s.start_time, s.end_time, e.name
              FROM schedules s
@@ -163,11 +189,11 @@ app.get('/schedule', login, async (req, res, next) => {
 // 근무표 관리 화면
 app.get('/user/schedule', boss, async (req, res, next) => {
     try {
-        const [employees] = await db.execute(
+        const [employees] = await query(
             'SELECT employee_id_em, name FROM employees ORDER BY name'
         );
 
-        const [schedules] = await db.execute(
+        const [schedules] = await query(
             `SELECT s.*, e.name
              FROM schedules s
              JOIN employees e ON s.employee_id_sh = e.employee_id_em
@@ -185,7 +211,7 @@ app.post('/user/schedule', boss, async (req, res, next) => {
     try {
         const { employee_id_sh, work_date, start_time, end_time } = req.body;
 
-        await db.execute(
+        await query(
             `INSERT INTO schedules
              (employee_id_sh, work_date, start_time, end_time)
              VALUES (?, ?, ?, ?)`,
@@ -203,7 +229,7 @@ app.post('/user/schedule/update', boss, async (req, res, next) => {
     try {
         const { schedule_id, employee_id_sh, work_date, start_time, end_time } = req.body;
 
-        await db.execute(
+        await query(
             `UPDATE schedules
              SET employee_id_sh = ?, work_date = ?,
                  start_time = ?, end_time = ?
@@ -220,7 +246,7 @@ app.post('/user/schedule/update', boss, async (req, res, next) => {
 // 근무표 삭제
 app.post('/user/schedule/delete', boss, async (req, res, next) => {
     try {
-        await db.execute(
+        await query(
             'DELETE FROM schedules WHERE schedule_id = ?',
             [req.body.schedule_id]
         );
@@ -236,7 +262,7 @@ app.get('/user/employee', boss, async (req, res, next) => {
     try {
         const name = (req.query.name || '').trim();
 
-        const [employees] = await db.execute(
+        const [employees] = await query(
             `SELECT e.*, u.username, u.role,
                     COUNT(DISTINCT s.schedule_id) AS work_count,
                     COALESCE(SUM(TIMESTAMPDIFF(
@@ -261,8 +287,6 @@ app.get('/user/employee', boss, async (req, res, next) => {
 // 직원 추가: users에 직원 계정이 먼저 있어야 함
 
  app.post('/user/employee/create', boss, async (req, res, next) => {
-    const connection = await db.getConnection();
-
     try {
         const { username, password, name, gender, age } = req.body;
 
@@ -271,44 +295,45 @@ app.get('/user/employee', boss, async (req, res, next) => {
             return res.status(400).send('모든 항목을 입력해 주세요.');
         }
 
-        await connection.beginTransaction();
+        const created = await withDbLock(async () => {
+            await db.beginTransaction();
+            try {
+                const [existingUsers] = await db.execute(
+                    'SELECT user_id FROM users WHERE username = ?',
+                    [username]
+                );
 
-        // 아이디 중복 확인
-        const [existingUsers] = await connection.execute(
-            'SELECT user_id FROM users WHERE username = ?',
-            [username]
-        );
+                if (existingUsers.length > 0) {
+                    await db.rollback();
+                    return false;
+                }
 
-        if (existingUsers.length > 0) {
-            await connection.rollback();
+                const [userResult] = await db.execute(
+                    `INSERT INTO users (username, password, role)
+                     VALUES (?, ?, 'employee')`,
+                    [username, password]
+                );
+
+                await db.execute(
+                    `INSERT INTO employees (user_id_em, name, gender, age)
+                     VALUES (?, ?, ?, ?)`,
+                    [userResult.insertId, name, gender, Number(age)]
+                );
+
+                await db.commit();
+                return true;
+            } catch (err) {
+                await db.rollback().catch(() => {});
+                throw err;
+            }
+        });
+
+        if (!created) {
             return res.status(400).send('이미 사용 중인 아이디입니다.');
         }
-
-        // 1. users 테이블에 로그인 계정 생성
-        const [userResult] = await connection.execute(
-            `INSERT INTO users (username, password, role)
-             VALUES (?, ?, 'employee')`,
-            [username, password]
-        );
-
-        // 방금 생성한 계정의 user_id 가져오기
-        const userId = userResult.insertId;
-
-        // 2. employees 테이블에 직원 정보 생성
-        await connection.execute(
-            `INSERT INTO employees (user_id_em, name, gender, age)
-             VALUES (?, ?, ?, ?)`,
-            [userId, name, gender, Number(age)]
-        );
-
-        await connection.commit();
-
         res.redirect('/user/employee');
     } catch (err) {
-        await connection.rollback();
         next(err);
-    } finally {
-        connection.release();
     }
 });
 
@@ -318,7 +343,7 @@ app.post('/user/employee/update', boss, async (req, res, next) => {
     try {
         const { employee_id_em, name, gender, age } = req.body;
 
-        await db.execute(
+        await query(
             `UPDATE employees SET name = ?, gender = ?, age = ?
              WHERE employee_id_em = ?`,
             [name, gender, age, employee_id_em]
@@ -332,45 +357,48 @@ app.post('/user/employee/update', boss, async (req, res, next) => {
 
 // 직원 및 관련 근무표 삭제
 app.post('/user/employee/delete', boss, async (req, res, next) => {
-    const connection = await db.getConnection();
-
     try {
-        await connection.beginTransaction();
+        const deleted = await withDbLock(async () => {
+            await db.beginTransaction();
+            try {
+                const [rows] = await db.execute(
+                    'SELECT user_id_em FROM employees WHERE employee_id_em = ?',
+                    [req.body.employee_id_em]
+                );
 
-        const [rows] = await connection.execute(
-            'SELECT user_id_em FROM employees WHERE employee_id_em = ?',
-            [req.body.employee_id_em]
-        );
+                if (!rows.length) {
+                    await db.rollback();
+                    return false;
+                }
 
-        if (!rows.length) {
-            await connection.rollback();
+                const userId = rows[0].user_id_em;
+                await db.execute(
+                    'DELETE FROM schedules WHERE employee_id_sh = ?',
+                    [req.body.employee_id_em]
+                );
+                await db.execute(
+                    'DELETE FROM employees WHERE employee_id_em = ?',
+                    [req.body.employee_id_em]
+                );
+                await db.execute(
+                    "DELETE FROM users WHERE user_id = ? AND role = 'employee'",
+                    [userId]
+                );
+
+                await db.commit();
+                return true;
+            } catch (err) {
+                await db.rollback().catch(() => {});
+                throw err;
+            }
+        });
+
+        if (!deleted) {
             return res.status(404).send('직원 정보가 없습니다.');
         }
-
-        const userId = rows[0].user_id_em;
-
-        await connection.execute(
-            'DELETE FROM schedules WHERE employee_id_sh = ?',
-            [req.body.employee_id_em]
-        );
-
-        await connection.execute(
-            'DELETE FROM employees WHERE employee_id_em = ?',
-            [req.body.employee_id_em]
-        );
-
-        await connection.execute(
-            "DELETE FROM users WHERE user_id = ? AND role = 'employee'",
-            [userId]
-        );
-
-        await connection.commit();
         res.redirect('/user/employee');
     } catch (err) {
-        await connection.rollback();
         next(err);
-    } finally {
-        connection.release();
     }
 });
 console.log('CA 인증서 등록 여부:', Boolean(caCert));
@@ -384,6 +412,28 @@ app.use((err, req, res, next) => {
     res.status(500).send('오류가 발생했습니다. 터미널을 확인해 주세요.');
 });
 
-app.listen(PORT, '0.0.0.0', () => {
-    console.log(`서버 실행 중: ${PORT}`);
-});
+async function start() {
+    try {
+        // 기존 Aiven 데이터베이스에 단일 연결을 만들고, 연결이 확인된 뒤 서버를 엽니다.
+        db = await mysql.createConnection(dbConfig);
+        await db.execute('SELECT 1');
+        app.listen(PORT, '0.0.0.0', () => {
+            console.log(`서버 실행 중: ${PORT}`);
+        });
+    } catch (err) {
+        console.error('데이터베이스 연결에 실패했습니다:', err.message);
+        process.exit(1);
+    }
+}
+
+for (const signal of ['SIGINT', 'SIGTERM']) {
+    process.on(signal, async () => {
+        try {
+            if (db) await db.end();
+        } finally {
+            process.exit(0);
+        }
+    });
+}
+
+start();
